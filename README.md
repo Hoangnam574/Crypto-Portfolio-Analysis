@@ -251,7 +251,7 @@ Floating-point inaccuracies (e.g. `0.1 + 0.2 !== 0.3`) are unacceptable in finan
    - Fiat values (Value, Cost Basis, Realized, Unrealized, Fees): formatted to 2 decimal places with comma separation.
    - Prices below $1.00: formatted up to 8 significant digits (e.g. CKB at `$0.01524100`).
    - Quantities: trimmed of trailing zeros, displaying up to 8 decimal places.
-   - P&L Percentages: formatted as $(\frac{\text{P\&L}}{\text{Cost Basis}}) \times 100\%$ with 2 decimals; displays `—` if cost basis is 0.
+   - - P&L Percentages: formatted as $(\frac{\text{PnL}}{\text{Cost Basis}}) \times 100\%$ with 2 decimals; displays - if cost basis is 0.
 
 ---
 
