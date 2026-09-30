@@ -854,13 +854,13 @@ export default function Dashboard() {
                       <td className="font-numeric text-center">{fmtUSD(summary?.total_cost_basis)}</td>
                       <td className="font-numeric text-center">—</td>
                       <td className="font-numeric text-center" style={{ color: '#fff' }}>{fmtUSD(summary?.total_value)}</td>
-                      <td className="font-numeric text-center" style={{ color: realizedPnlInfo.isProfit ? 'var(--profit)' : 'inherit' }}>
+                      <td className="font-numeric text-center" style={{ color: realizedPnlInfo.isProfit ? 'var(--profit)' : 'var(--loss)' }}>
                         {realizedPnlInfo.text}
                       </td>
-                      <td className="font-numeric text-center" style={{ color: unrealizedPnlInfo.isProfit ? 'var(--profit)' : 'inherit' }}>
+                      <td className="font-numeric text-center" style={{ color: unrealizedPnlInfo.isProfit ? 'var(--profit)' : 'var(--loss)' }}>
                         {unrealizedPnlInfo.text}
                       </td>
-                      <td className="font-numeric text-center" style={{ color: totalPnlInfo.isProfit ? 'var(--profit)' : 'inherit' }}>
+                      <td className="font-numeric text-center" style={{ color: totalPnlInfo.isProfit ? 'var(--profit)' : 'var(--loss)' }}>
                         {totalPnlInfo.text}
                       </td>
                       <td className="font-numeric text-center" style={{ color: 'var(--primary)' }}>
