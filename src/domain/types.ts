@@ -142,7 +142,10 @@ export interface TradesQueryParams {
   from?: string; // ISO-8601
   to?: string; // ISO-8601
   sort?: 'asc' | 'desc';
+  sortBy?: keyof TradeSnapshot | string;
+  sortDir?: 'asc' | 'desc';
 }
+
 
 export interface TradesResponse {
   rows: TradeSnapshot[];

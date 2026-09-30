@@ -21,13 +21,15 @@ import type {
   Exchange,
   Side,
   Symbol as AssetSymbol,
+  PriceEntry,
 } from '../domain/types';
 import { EXCHANGES, SIDES, SYMBOLS } from '../domain/types';
 
 const MAX_ERRORS = 50;
-const MAX_FILE_SIZE = 1 * 1024 * 1024; // 1 MB
+export const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
 const REQUIRED_HEADERS = [
   'trade_id',
+
   'timestamp',
   'exchange',
   'symbol',
@@ -84,12 +86,13 @@ export function validateAndParse(
   if (fileSize !== undefined && fileSize > MAX_FILE_SIZE) {
     errors.push(
       makeError(null, null, null, 'FILE_TOO_LARGE', 
-        `File size (${(fileSize / 1024).toFixed(1)}KB) exceeds 1MB limit.`,
+        `File size (${(fileSize / (1024 * 1024)).toFixed(1)}MB) exceeds 50MB limit.`,
         'Reduce the file size or split into smaller files.',
       ),
     );
     return { ok: false, errors, summary: summarize(errors) };
   }
+
 
   // Handle BOM
   let cleaned = content;
@@ -323,4 +326,146 @@ function summarize(errors: ImportError[]): Record<ImportErrorCode, number> {
     summary[e.code] = (summary[e.code] || 0) + 1;
   }
   return summary;
+}
+
+const REQUIRED_PRICE_HEADERS = ['symbol', 'price_usd', 'as_of'] as const;
+
+export function validateAndParsePrices(
+  content: string,
+  fileSize?: number,
+):
+  | { ok: true; prices: PriceEntry[]; count: number }
+  | { ok: false; errors: ImportError[]; summary: Record<string, number> } {
+  const errors: ImportError[] = [];
+
+  if (fileSize !== undefined && fileSize > MAX_FILE_SIZE) {
+    errors.push(
+      makeError(null, null, null, 'FILE_TOO_LARGE',
+        `File size (${(fileSize / (1024 * 1024)).toFixed(1)}MB) exceeds maximum allowed size (50MB).`,
+        'Export a smaller date range or split into multiple files.',
+      ),
+    );
+    return { ok: false, errors, summary: summarize(errors) };
+  }
+
+  const trimmed = content.trim();
+  if (trimmed === '') {
+    errors.push(
+      makeError(null, null, null, 'EMPTY_FILE', 'The uploaded file is empty.', 'Select a valid prices CSV file.'),
+    );
+    return { ok: false, errors, summary: summarize(errors) };
+  }
+
+  let records: any[];
+  try {
+    records = parse(content, {
+      columns: true,
+      skip_empty_lines: true,
+      trim: true,
+      bom: true,
+    });
+  } catch (err: any) {
+    errors.push(
+      makeError(null, null, null, 'MISSING_HEADER', `CSV parsing failed: ${err.message}`, 'Check file formatting.'),
+    );
+    return { ok: false, errors, summary: summarize(errors) };
+  }
+
+  if (records.length === 0) {
+    errors.push(
+      makeError(null, null, null, 'EMPTY_FILE', 'The uploaded file contains no data rows.', 'Add price rows to the CSV.'),
+    );
+    return { ok: false, errors, summary: summarize(errors) };
+  }
+
+  const headers = Object.keys(records[0] || {});
+  const missingHeaders = REQUIRED_PRICE_HEADERS.filter((h) => !headers.includes(h));
+  if (missingHeaders.length > 0) {
+    errors.push(
+      makeError(1, null, missingHeaders.join(', '), 'MISSING_HEADER',
+        `Missing required columns: ${missingHeaders.join(', ')}`,
+        `Expected columns: ${REQUIRED_PRICE_HEADERS.join(', ')}`,
+      ),
+    );
+    return { ok: false, errors, summary: summarize(errors) };
+  }
+
+  const symbolMap = new Map<string, number>();
+  const validatedPrices: PriceEntry[] = [];
+
+  for (let i = 0; i < records.length && errors.length < MAX_ERRORS; i++) {
+    const row = records[i];
+    const rowNum = i + 2;
+
+    let rowValid = true;
+
+    // Symbol
+    const sym = (row.symbol || '').trim();
+    if (!sym || !SYMBOLS.includes(sym as AssetSymbol)) {
+      errors.push(
+        makeError(rowNum, 'symbol', row.symbol, 'INVALID_SYMBOL',
+          `Unknown asset symbol: '${row.symbol}'. Supported: ${SYMBOLS.join(', ')}`,
+          `Use one of the supported symbols: ${SYMBOLS.join(', ')}`,
+        ),
+      );
+      rowValid = false;
+    } else if (symbolMap.has(sym)) {
+      errors.push(
+        makeError(rowNum, 'symbol', sym, 'DUPLICATE_TRADE_ID',
+          `Duplicate price entry for symbol '${sym}' (first seen on row ${symbolMap.get(sym)})`,
+          'Each asset symbol can only appear once in prices.csv.',
+        ),
+      );
+      rowValid = false;
+    } else {
+      symbolMap.set(sym, rowNum);
+    }
+
+    // Price USD
+    if (!isValidDecimal(row.price_usd || '')) {
+      errors.push(
+        makeError(rowNum, 'price_usd', row.price_usd, 'INVALID_PRICE',
+          `Invalid price: '${row.price_usd}'. Must be a valid positive number.`,
+          'Enter a positive number without currency symbols.',
+        ),
+      );
+      rowValid = false;
+    } else {
+      const p = new Decimal(row.price_usd.trim());
+      if (p.lte(0)) {
+        errors.push(
+          makeError(rowNum, 'price_usd', row.price_usd, 'INVALID_PRICE',
+            `Price must be greater than zero, got ${p.toFixed()}`,
+            'Ensure market price is positive.',
+          ),
+        );
+        rowValid = false;
+      }
+    }
+
+    // as_of timestamp
+    if (!row.as_of || !isValidISO8601UTC(row.as_of)) {
+      errors.push(
+        makeError(rowNum, 'as_of', row.as_of, 'INVALID_TIMESTAMP',
+          `Invalid timestamp: '${row.as_of}'. Must be ISO-8601 UTC ending in 'Z'.`,
+          'Format example: 2026-03-31T23:59:59Z',
+        ),
+      );
+      rowValid = false;
+    }
+
+    if (rowValid) {
+      validatedPrices.push({
+        symbol: sym as AssetSymbol,
+        price_usd: new Decimal(row.price_usd.trim()).toFixed(),
+        as_of: new Date(row.as_of.trim()).toISOString(),
+      });
+    }
+  }
+
+  if (errors.length > 0) {
+    return { ok: false, errors: errors.slice(0, MAX_ERRORS), summary: summarize(errors) };
+  }
+
+  return { ok: true, prices: validatedPrices, count: validatedPrices.length };
 }

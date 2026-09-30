@@ -22,7 +22,18 @@ const globalForDb = globalThis as unknown as {
 export type Database = ReturnType<typeof drizzle<typeof schema>>;
 
 export async function getDb(): Promise<Database> {
-  if (globalForDb.dbInstance) return globalForDb.dbInstance;
+  if (globalForDb.dbInstance) {
+    const oldDir = (globalForDb.pgliteInstance as any)?.dataDir;
+    if (oldDir && oldDir.toLowerCase().includes('onedrive')) {
+      try {
+        await globalForDb.pgliteInstance?.close();
+      } catch {}
+      globalForDb.pgliteInstance = null;
+      globalForDb.dbInstance = null;
+    } else {
+      return globalForDb.dbInstance;
+    }
+  }
 
   const databaseUrl = process.env.DATABASE_URL;
 
@@ -37,24 +48,32 @@ export async function getDb(): Promise<Database> {
     globalForDb.dbInstance = drizzleNeon(pool, { schema }) as unknown as Database;
   } else {
     // Local dev: use PGlite with file persistence
-    // Falls back to system tmpdir if OneDrive/cloud-sync causes reparse point issues
+    // On Windows with OneDrive or cloud sync, storing database files inside the repo directory causes file locking collisions in WASM.
+    // Use system temp directory when OneDrive is detected, or PGLITE_DIR if set.
     const { mkdirSync } = await import('fs');
     const { resolve, join } = await import('path');
     const os = await import('os');
 
-    const primaryDir = process.env.PGLITE_DIR || resolve(process.cwd(), '.data', 'pglite');
+    const isCloudSync = process.cwd().toLowerCase().includes('onedrive');
+    const primaryDir = process.env.PGLITE_DIR || (isCloudSync ? join(os.tmpdir(), 'crypto-portfolio-pglite') : resolve(process.cwd(), '.data', 'pglite'));
     let client: PGlite;
 
     try {
       mkdirSync(primaryDir, { recursive: true });
       client = new PGlite(primaryDir);
-      await client.query('SELECT 1');
+      await client.waitReady;
     } catch (err) {
-      console.warn('Primary PGlite directory failed (e.g. cloud sync lock), using system temp directory instead.');
-      const fallbackDir = join(os.tmpdir(), 'crypto-portfolio-pglite');
-      mkdirSync(fallbackDir, { recursive: true });
-      client = new PGlite(fallbackDir);
-      await client.query('SELECT 1');
+      console.warn('Primary PGlite directory failed, falling back to system temp or in-memory instance:', err);
+      try {
+        const fallbackDir = join(os.tmpdir(), 'crypto-portfolio-pglite');
+        mkdirSync(fallbackDir, { recursive: true });
+        client = new PGlite(fallbackDir);
+        await client.waitReady;
+      } catch (err2) {
+        console.warn('Falling back to in-memory PGlite:', err2);
+        client = new PGlite();
+        await client.waitReady;
+      }
     }
 
     globalForDb.pgliteInstance = client;

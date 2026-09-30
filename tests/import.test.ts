@@ -6,7 +6,7 @@
  * short position from replay, and successful import not modifying DB on error.
  */
 import { describe, it, expect } from 'vitest';
-import { validateAndParse } from '@/import/validate';
+import { validateAndParse, validateAndParsePrices } from '@/import/validate';
 
 const VALID_HEADER = 'trade_id,timestamp,exchange,symbol,side,quantity,price_usd,fee_usd';
 
@@ -117,12 +117,13 @@ describe('Import validation', () => {
   });
 
   it('rejects file too large', () => {
-    const result = validateAndParse('x', 2 * 1024 * 1024);
+    const result = validateAndParse('x', 60 * 1024 * 1024);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.errors.some(e => e.code === 'FILE_TOO_LARGE')).toBe(true);
     }
   });
+
 
   it('catches short position from replay', () => {
     const csv = makeCsv([
@@ -170,4 +171,106 @@ describe('Import validation', () => {
       expect(row3Errors.length).toBeGreaterThanOrEqual(4);
     }
   });
+
+  it('validates and replays trades_comprehensive.csv cleanly', () => {
+    const { readFileSync } = require('fs');
+    const { join } = require('path');
+    const csvContent = readFileSync(join(__dirname, '../data/trades_comprehensive.csv'), 'utf-8');
+    const result = validateAndParse(csvContent);
+    if (!result.ok) {
+      console.log('VALIDATION ERRORS:', result.errors);
+    }
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.trades.length).toBe(500);
+    }
+  });
 });
+
+describe('Prices CSV validation', () => {
+  const VALID_PRICES_CSV = `symbol,price_usd,as_of
+BTC,111500.00,2026-03-31T23:59:59Z
+ETH,4025.00,2026-03-31T23:59:59Z
+SOL,208.50,2026-03-31T23:59:59Z
+CKB,0.00715,2026-03-31T23:59:59Z
+DOGE,0.242,2026-03-31T23:59:59Z`;
+
+  it('validates a correct prices CSV', () => {
+    const result = validateAndParsePrices(VALID_PRICES_CSV);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.count).toBe(5);
+      expect(result.prices).toHaveLength(5);
+      expect(result.prices[0].symbol).toBe('BTC');
+      expect(result.prices[0].price_usd).toBe('111500');
+    }
+  });
+
+  it('rejects missing header in prices CSV', () => {
+    const csv = `symbol,price_usd\nBTC,111500.00`;
+    const result = validateAndParsePrices(csv);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors.some((e) => e.code === 'MISSING_HEADER')).toBe(true);
+    }
+  });
+
+  it('rejects unknown asset symbol', () => {
+    const csv = `symbol,price_usd,as_of\nUNKNOWN,100.00,2026-03-31T23:59:59Z`;
+    const result = validateAndParsePrices(csv);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors.some((e) => e.code === 'INVALID_SYMBOL')).toBe(true);
+    }
+  });
+
+  it('rejects duplicate asset symbol', () => {
+    const csv = `symbol,price_usd,as_of
+BTC,111500.00,2026-03-31T23:59:59Z
+BTC,112000.00,2026-03-31T23:59:59Z`;
+    const result = validateAndParsePrices(csv);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors.some((e) => e.code === 'DUPLICATE_TRADE_ID')).toBe(true);
+    }
+  });
+
+  it('rejects negative or zero prices', () => {
+    const csvZero = `symbol,price_usd,as_of\nBTC,0,2026-03-31T23:59:59Z`;
+    const resZero = validateAndParsePrices(csvZero);
+    expect(resZero.ok).toBe(false);
+
+    const csvNeg = `symbol,price_usd,as_of\nBTC,-50,2026-03-31T23:59:59Z`;
+    const resNeg = validateAndParsePrices(csvNeg);
+    expect(resNeg.ok).toBe(false);
+  });
+
+  it('rejects invalid timestamp format in prices CSV', () => {
+    const csv = `symbol,price_usd,as_of\nBTC,100000,2026-03-31`;
+    const result = validateAndParsePrices(csv);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors.some((e) => e.code === 'INVALID_TIMESTAMP')).toBe(true);
+    }
+  });
+
+  it('rejects empty file', () => {
+    const result = validateAndParsePrices('   ');
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors.some((e) => e.code === 'EMPTY_FILE')).toBe(true);
+    }
+  });
+
+  it('validates actual data/prices.csv file cleanly', () => {
+    const { readFileSync } = require('fs');
+    const { join } = require('path');
+    const csvContent = readFileSync(join(__dirname, '../data/prices.csv'), 'utf-8');
+    const result = validateAndParsePrices(csvContent);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.count).toBe(5);
+    }
+  });
+});
+

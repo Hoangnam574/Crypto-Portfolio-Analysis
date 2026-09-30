@@ -118,7 +118,58 @@ describe('API Route Handlers', () => {
       const data = await res.json();
       expect(data.error.code).toBe('INVALID_PARAM');
     });
+
+    it('returns 400 for out-of-bounds year in date param', async () => {
+      const req = new NextRequest('http://localhost:3000/api/trades?from=213123-12-31');
+      const res = await tradesHandler(req);
+      expect(res.status).toBe(400);
+
+      const data = await res.json();
+      expect(data.error.code).toBe('INVALID_PARAM');
+    });
+
+    it('returns 400 when from date is strictly after to date', async () => {
+      const req = new NextRequest('http://localhost:3000/api/trades?from=2026-03-31T00:00:00Z&to=2026-01-01T00:00:00Z');
+      const res = await tradesHandler(req);
+      expect(res.status).toBe(400);
+
+      const data = await res.json();
+      expect(data.error.code).toBe('INVALID_PARAM');
+      expect(data.error.message).toContain('from date cannot be after to date');
+    });
+
+
+    it('sorts trades across all pages globally by price_usd desc', async () => {
+      const reqPage1 = new NextRequest('http://localhost:3000/api/trades?page=1&pageSize=10&sortBy=price_usd&sortDir=desc');
+      const resPage1 = await tradesHandler(reqPage1);
+      expect(resPage1.status).toBe(200);
+      const data1 = await resPage1.json();
+
+      const reqPage2 = new NextRequest('http://localhost:3000/api/trades?page=2&pageSize=10&sortBy=price_usd&sortDir=desc');
+      const resPage2 = await tradesHandler(reqPage2);
+      expect(resPage2.status).toBe(200);
+      const data2 = await resPage2.json();
+
+      const minPricePage1 = Math.min(...data1.rows.map((r: any) => parseFloat(r.price_usd)));
+      const maxPricePage2 = Math.max(...data2.rows.map((r: any) => parseFloat(r.price_usd)));
+      expect(minPricePage1).toBeGreaterThanOrEqual(maxPricePage2);
+    });
+
+    it('sorts trades across all pages globally by timestamp desc', async () => {
+      const reqPage1 = new NextRequest('http://localhost:3000/api/trades?page=1&pageSize=10&sortBy=timestamp&sortDir=desc');
+      const resPage1 = await tradesHandler(reqPage1);
+      const data1 = await resPage1.json();
+
+      const reqPage2 = new NextRequest('http://localhost:3000/api/trades?page=2&pageSize=10&sortBy=timestamp&sortDir=desc');
+      const resPage2 = await tradesHandler(reqPage2);
+      const data2 = await resPage2.json();
+
+      const minTimePage1 = Math.min(...data1.rows.map((r: any) => new Date(r.timestamp).getTime()));
+      const maxTimePage2 = Math.max(...data2.rows.map((r: any) => new Date(r.timestamp).getTime()));
+      expect(minTimePage1).toBeGreaterThanOrEqual(maxTimePage2);
+    });
   });
+
 
   describe('POST /api/import', () => {
     it('returns 400 when no file is uploaded', async () => {

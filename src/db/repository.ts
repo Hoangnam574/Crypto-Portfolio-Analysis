@@ -20,12 +20,10 @@ import type {
  * Replace all trades atomically: DELETE all + INSERT new in one transaction.
  * If anything fails, the old data is preserved.
  */
-export async function replaceAllTrades(db: Database, newTrades: Trade[]) {
+export async function replaceAllTrades(db: Database, newTrades: Trade[]): Promise<void> {
   await (db as any).transaction(async (tx: any) => {
-    // Delete all existing trades
     await tx.delete(trades);
 
-    // Insert new trades in batches (avoid hitting parameter limits)
     const BATCH_SIZE = 100;
     for (let i = 0; i < newTrades.length; i += BATCH_SIZE) {
       const batch = newTrades.slice(i, i + BATCH_SIZE);
