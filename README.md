@@ -1,4 +1,4 @@
-# AI-Assisted Crypto Portfolio Analytics
+# Crypto Portfolio Analytics
 
 A production-grade, full-stack cryptocurrency portfolio tracking and analytics platform built with **Next.js 16 (App Router)**, **TypeScript**, **Drizzle ORM**, **PGlite / Neon Postgres**, and **Recharts**.
 
