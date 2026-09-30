@@ -8,8 +8,8 @@ Designed to track spot crypto trading performance across multiple exchanges with
 
 ## Live Demo & Deployment
 
-- **Live URL**: [https://crypto-portfolio-analytics-production.vercel.app](https://crypto-portfolio-analytics-production.vercel.app) *(Deployable on Vercel with Neon Serverless Postgres)*
-- **Source Repository**: GitHub Repository
+- **Live URL**: [https://crypto-portfolio-analysis-ten.vercel.app/](https://crypto-portfolio-analysis-ten.vercel.app/)
+- **Source Repository**: [https://github.com/Hoangnam574/Crypto-Portfolio-Analysis](https://github.com/Hoangnam574/Crypto-Portfolio-Analysis)
 
 ---
 
