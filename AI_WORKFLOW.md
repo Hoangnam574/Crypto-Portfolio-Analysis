@@ -3,6 +3,112 @@
 Tài liệu này ghi lại quá trình cộng tác giữa con người và AI Agent trong việc thiết kế, phát triển, kiểm thử và tối ưu hóa nền tảng **Crypto Portfolio Analytics**.
 
 
+## Ví dụ 0 — Tạo Implementation Plan (Áp dụng Anthropic 4D Framework)
+
+### 1. Mục tiêu và Ngữ cảnh
+
+**Delegation (Ủy thác):** Giao cho AI Agent nhiệm vụ phân tích toàn bộ đề bài assessment và dữ liệu mẫu, sau đó tổng hợp thành một kế hoạch triển khai chi tiết (`IMPLEMENTATION_PLAN.md`) — bao gồm kiến trúc thư mục, phân chia module, tiêu chí hoàn thành, và chiến lược testing. Đây là bước đầu tiên, nền tảng cho toàn bộ dự án.
+
+### 2. Prompt — Lượt 1 (Người dùng)
+
+**Description (Mô tả):** Prompt được viết bằng ngôn ngữ tự nhiên, cung cấp đầy đủ context, ràng buộc, và kỳ vọng đầu ra để AI hiểu chính xác nhiệm vụ:
+
+> Mình đang làm bài assessment cho vị trí Senior Full-Stack Engineer. Đề bài yêu cầu xây dựng một nền tảng Crypto Portfolio Analytics — web app hiển thị KPI tổng quan, bảng holdings, biểu đồ allocation và P&L, transaction explorer có filter/sort/paginate, và hỗ trợ import file CSV giao dịch.
+>
+> Mình đã attach file đề bài `assessment.pdf` và 2 file dữ liệu mẫu: `trades.csv` (khoảng 200 giao dịch spot crypto BUY/SELL trên nhiều sàn) và `prices.csv` (bảng giá tham chiếu tại một thời điểm cố định).
+>
+> Stack mình định dùng: Next.js App Router + TypeScript strict, Tailwind + shadcn/ui, Recharts cho biểu đồ, Drizzle ORM + Postgres (Neon khi deploy, PGlite embedded khi dev local để zero-config), decimal.js với precision 40 cho mọi phép tính tài chính, và Vitest để test.
+>
+> Mình cần bạn đọc kĩ đề bài và phân tích data, sau đó tạo ra file `IMPLEMENTATION_PLAN.md` hoàn chỉnh để mình triển khai từ đầu đến khi deploy. Plan cần bao gồm:
+> - Bảng tóm tắt các quyết định kiến trúc/thiết kế đã chốt
+> - Cấu trúc thư mục với mô tả trách nhiệm từng folder
+> - Chia module rõ ràng (M0–M11 hoặc tương đương), mỗi module có danh sách task dạng checkbox và mốc "Xong khi" đo lường được
+> - Liệt kê ít nhất 5 edge case/gotcha tài chính cụ thể của dự án này
+>
+> Một số ràng buộc quan trọng:
+> - Domain logic phải tách biệt 100% khỏi DB và framework — thư mục domain không được import React, Drizzle, hay Next.js
+> - Mọi phép tính tài chính phải dùng Decimal, tuyệt đối không dùng number/float, DB lưu NUMERIC(38,18)
+> - Import CSV phải atomic, all-or-nothing trong 1 transaction. Gom tối đa 50 lỗi kèm dòng, cột, lý do, cách sửa
+> - Tính giá vốn theo WAC: fee BUY cộng vào cost basis, fee SELL trừ khỏi proceeds, SELL không được thay đổi avg cost của phần còn lại
+> - Cần có golden test: viết Python oracle dùng Decimal precision 50 rồi so sánh kết quả với TypeScript tới sai số 1e-20
+>
+> Trước khi viết plan, nếu có điểm nào trong đề bài bạn thấy mơ hồ hoặc cần mình xác nhận thì hỏi trước nhé.
+
+### 2.1 Phản hồi của Claude — Câu hỏi làm rõ
+
+Claude không viết plan ngay mà đặt ra các câu hỏi để làm rõ những điểm mơ hồ trong đề bài:
+
+> Cảm ơn bạn đã cung cấp đề bài và dữ liệu rất chi tiết. Mình đã đọc qua assessment.pdf và phân tích cả trades.csv lẫn prices.csv. Trước khi viết plan, mình cần xác nhận vài điểm:
+>
+> **1. Phạm vi tính position — gộp hay tách theo sàn?**
+> Dữ liệu có giao dịch trên cả Binance và Coinbase. Ví dụ BTC có 20 giao dịch trên Binance và 20 trên Coinbase. Khi tính cost basis, average cost, và P&L cho BTC — bạn muốn gộp tất cả thành một position duy nhất hay theo dõi riêng từng sàn?
+>
+> **2. Tie-breaking khi timestamp trùng**
+> Mình thấy có trường hợp 2 giao dịch khác sàn nhưng cùng timestamp chính xác. Thứ tự xử lý ảnh hưởng đến average cost → ảnh hưởng realized P&L. Bạn muốn dùng quy tắc tie-break nào? Gợi ý: dùng thứ tự dòng trong file CSV (seq) để đảm bảo kết quả deterministic.
+>
+> **3. Asset thiếu giá trong prices.csv**
+> Nếu một asset có position mở nhưng không có giá trong prices.csv thì xử lý thế nào? Loại khỏi tổng value? Vẫn hiện trong bảng? Realized P&L có tính không?
+>
+> **4. Khi import file mới — thay thế hay bổ sung?**
+> Người dùng upload CSV mới thì ghi đè toàn bộ dữ liệu cũ hay append thêm?
+>
+> **5. File seed — qua validation hay không?**
+> Dữ liệu mẫu (trades.csv đi kèm) khi seed vào DB lần đầu có cần đi qua cùng pipeline validation với import thủ công không? Hay tạo đường tắt riêng?
+
+### 2.2 Prompt — Lượt 2 (Người dùng trả lời)
+
+> Trả lời từng câu:
+>
+> 1. **Gộp sàn.** Một position duy nhất cho mỗi asset, gộp cả Binance và Coinbase. Đề bài ghi "Process transactions in ascending timestamp order for each asset in the calculation scope" — không tách theo sàn.
+>
+> 2. **Dùng seq.** Đúng rồi, dùng cặp khóa (timestamp, seq), seq là chỉ số dòng trong file CSV. Kết quả phải deterministic.
+>
+> 3. **Loại khỏi tổng value** nhưng vẫn hiện trong bảng holdings với ghi chú "thiếu giá". Hiện banner cảnh báo ở dashboard. Realized P&L vẫn được tính bình thường vì nó không phụ thuộc giá hiện tại.
+>
+> 4. **Thay thế toàn bộ.** Import mới ghi đè hoàn toàn dữ liệu cũ. Delete + insert trong 1 transaction.
+>
+> 5. **Phải qua validation.** Seed dùng đúng pipeline import, không tạo đường tắt. Nếu data mẫu mà sai thì phải biết ngay.
+>
+> OK, giờ viết plan đi.
+
+### 3. Phản hồi của Agent — Tạo Implementation Plan
+
+Sau khi được xác nhận, Claude sinh ra `IMPLEMENTATION_PLAN.md` hoàn chỉnh gồm:
+
+- **Bảng quyết định đã chốt** (19 hạng mục): stack, số học, DB, phạm vi tính, import, explorer, thiếu giá, test, mobile, deploy — mỗi hạng mục phản ánh chính xác câu trả lời ở lượt 2.
+- **Thống kê dữ liệu mẫu**: 200 giao dịch (128 BUY / 72 SELL), 5 asset × 40 giao dịch, chia đều Binance/Coinbase, quantity trải từ ~0.006 BTC đến ~1.79 triệu CKB.
+- **Cấu trúc thư mục** phân tách rõ 4 lớp: `/src/domain` (thuần TS), `/src/import` (parse + validate), `/src/db` (persistence), `/src/app` (UI + API).
+- **12 module (M0–M11)** từ khởi tạo project đến deploy và tài liệu, mỗi module có danh sách task checkbox và mốc **"Xong khi"** rõ ràng.
+- **7 điểm dễ sai** cụ thể: fee BUY vs SELL, SELL không đổi avg, full close reset, `avgBefore` phải lấy trước khi bán, cấm `number`/float, tie-break timestamp, chia cho 0.
+
+### 4. Đánh giá & Rà soát (Review) — Discernment & Diligence
+
+**Discernment (Phân biệt):** Rà soát kế hoạch AI tạo ra đối chiếu với đề bài gốc:
+- ✅ Mọi yêu cầu trong assessment (KPI, holdings, charts, explorer, import, deploy) đều được map vào ít nhất 1 module.
+- ✅ Module M1 (Domain) được đánh trọng số cao nhất, phản ánh đúng rủi ro kỹ thuật lớn nhất của dự án.
+- ✅ Edge case tài chính đều được liệt kê tường minh ở Section 3.
+- ✅ Các câu trả lời xác nhận (gộp sàn, seq tie-break, thay thế toàn bộ, seed qua validation) đều được phản ánh đúng trong plan.
+
+**Diligence (Trách nhiệm):** Người dùng tự kiểm tra lần cuối toàn bộ plan trước khi bắt tay triển khai, đảm bảo:
+- Không có module nào thiếu tiêu chí hoàn thành.
+- Thứ tự dependency hợp lý (M0 → M1 → M2 → M3 → M4 → M5–M8 → M9 → M10 → M11).
+- Chiến lược golden test cross-language (Python `Decimal` ↔ TypeScript `decimal.js`) được xác nhận khả thi.
+
+### 5. Kết quả
+
+**Chấp nhận.** Kế hoạch triển khai được lưu tại `IMPLEMENTATION_PLAN.md` và trở thành tài liệu tham chiếu chính cho toàn bộ quá trình phát triển.
+
+### Ghi chú: Áp dụng Framework 4D của Anthropic
+
+| Chiều (D) | Thể hiện ở bước nào | Mô tả |
+|---|---|---|
+| **Delegation** (Ủy thác) | Lượt 1 | Người dùng xác định rõ nhiệm vụ giao cho AI (phân tích đề + data → lập plan), đồng thời giữ lại quyền quyết định kiến trúc và chốt trade-off. |
+| **Description** (Mô tả) | Lượt 1 | Prompt cung cấp đầy đủ context (đề bài, data, stack), ràng buộc kỹ thuật (Decimal, atomic import, WAC), và kỳ vọng output (cấu trúc plan cụ thể) — đủ chi tiết để AI không phải đoán. |
+| **Discernment** (Phân biệt) | Lượt hỏi + Bước 4 | Claude chủ động hỏi ngược 5 điểm mơ hồ thay vì giả định → người dùng đánh giá plan tạo ra, đối chiếu với assessment gốc. |
+| **Diligence** (Trách nhiệm) | Lượt 2 + Bước 4 | Người dùng trả lời từng câu hỏi có cân nhắc, review plan cuối cùng, và chịu trách nhiệm duyệt trước khi triển khai — không chấp nhận mù quáng. |
+
+---
+
 ## Ví dụ 1 — Phân tích Yêu cầu 
 
 ### 1. Mục tiêu và Ngữ cảnh
